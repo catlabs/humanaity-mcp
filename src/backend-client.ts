@@ -1,6 +1,12 @@
 import type { AppConfig } from "./config.js";
 import { BackendApiError } from "./errors.js";
-import type { AuthTokens, CityOutput, HumanOutput, SimulationSnapshot, SimulationStatus } from "./types.js";
+import type {
+  AuthTokens,
+  CityOutput,
+  HumanOutput,
+  SimulationSnapshot,
+  SimulationStatus,
+} from "./contracts.js";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
 
@@ -111,13 +117,23 @@ export class BackendClient {
     });
   }
 
-  async humansByCity(cityId: string, accessToken?: string): Promise<HumanOutput[]> {
-    return this.request<HumanOutput[]>("GET", `/api/humans/city/${encodeURIComponent(cityId)}`, {
-      accessToken: await this.resolveAccessToken(accessToken),
-    });
+  async humansByCity(
+    cityId: string,
+    accessToken?: string,
+  ): Promise<HumanOutput[]> {
+    return this.request<HumanOutput[]>(
+      "GET",
+      `/api/humans/city/${encodeURIComponent(cityId)}`,
+      {
+        accessToken: await this.resolveAccessToken(accessToken),
+      },
+    );
   }
 
-  async simulationStart(cityId: string, accessToken?: string): Promise<{ message: string }> {
+  async simulationStart(
+    cityId: string,
+    accessToken?: string,
+  ): Promise<{ message: string }> {
     return this.request<{ message: string }>(
       "POST",
       `/api/simulations/${encodeURIComponent(cityId)}/start`,
@@ -127,7 +143,10 @@ export class BackendClient {
     );
   }
 
-  async simulationStop(cityId: string, accessToken?: string): Promise<{ message: string }> {
+  async simulationStop(
+    cityId: string,
+    accessToken?: string,
+  ): Promise<{ message: string }> {
     return this.request<{ message: string }>(
       "POST",
       `/api/simulations/${encodeURIComponent(cityId)}/stop`,
@@ -137,7 +156,10 @@ export class BackendClient {
     );
   }
 
-  async simulationStatus(cityId: string, accessToken?: string): Promise<SimulationStatus> {
+  async simulationStatus(
+    cityId: string,
+    accessToken?: string,
+  ): Promise<SimulationStatus> {
     return this.request<SimulationStatus>(
       "GET",
       `/api/simulations/${encodeURIComponent(cityId)}/status`,
@@ -147,13 +169,16 @@ export class BackendClient {
     );
   }
 
-  async simulationSnapshot(cityId: string, accessToken?: string): Promise<SimulationSnapshot> {
+  async simulationSnapshot(
+    cityId: string,
+    accessToken?: string,
+  ): Promise<SimulationSnapshot> {
     const [status, humans] = await Promise.all([
       this.simulationStatus(cityId, accessToken),
       this.humansByCity(cityId, accessToken),
     ]);
 
-    const busyCount = humans.filter((human) => human.busy ?? human.isBusy ?? false).length;
+    const busyCount = humans.filter((human) => human.busy ?? false).length;
     const count = humans.length;
     const busyRatio = count === 0 ? 0 : busyCount / count;
 
@@ -165,8 +190,12 @@ export class BackendClient {
       validCoordinates.length === 0
         ? null
         : {
-            x: validCoordinates.reduce((sum, human) => sum + human.x, 0) / validCoordinates.length,
-            y: validCoordinates.reduce((sum, human) => sum + human.y, 0) / validCoordinates.length,
+            x:
+              validCoordinates.reduce((sum, human) => sum + human.x, 0) /
+              validCoordinates.length,
+            y:
+              validCoordinates.reduce((sum, human) => sum + human.y, 0) /
+              validCoordinates.length,
           };
 
     const bounds =
@@ -193,7 +222,9 @@ export class BackendClient {
     };
   }
 
-  private async resolveAccessToken(explicitAccessToken?: string): Promise<string> {
+  private async resolveAccessToken(
+    explicitAccessToken?: string,
+  ): Promise<string> {
     if (explicitAccessToken) {
       return explicitAccessToken;
     }
@@ -203,7 +234,10 @@ export class BackendClient {
     }
 
     if (this.config.apiEmail && this.config.apiPassword) {
-      const tokens = await this.authLogin(this.config.apiEmail, this.config.apiPassword);
+      const tokens = await this.authLogin(
+        this.config.apiEmail,
+        this.config.apiPassword,
+      );
       return tokens.accessToken;
     }
 
@@ -212,7 +246,11 @@ export class BackendClient {
     );
   }
 
-  private async request<T>(method: HttpMethod, path: string, options?: RequestOptions): Promise<T> {
+  private async request<T>(
+    method: HttpMethod,
+    path: string,
+    options?: RequestOptions,
+  ): Promise<T> {
     const controller = new AbortController();
     const timeoutHandle = setTimeout(() => {
       controller.abort();
@@ -223,7 +261,9 @@ export class BackendClient {
         method,
         headers: {
           "Content-Type": "application/json",
-          ...(options?.accessToken ? { Authorization: `Bearer ${options.accessToken}` } : {}),
+          ...(options?.accessToken
+            ? { Authorization: `Bearer ${options.accessToken}` }
+            : {}),
         },
         body: options?.body ? JSON.stringify(options.body) : undefined,
         signal: controller.signal,
@@ -231,7 +271,8 @@ export class BackendClient {
 
       const payload = await this.readPayload(response);
       if (!response.ok) {
-        const message = this.extractErrorMessage(payload) ?? response.statusText;
+        const message =
+          this.extractErrorMessage(payload) ?? response.statusText;
         throw new BackendApiError({
           status: response.status,
           path,
@@ -246,7 +287,9 @@ export class BackendClient {
         throw error;
       }
       if (error instanceof Error && error.name === "AbortError") {
-        throw new Error(`Request timeout after ${this.config.requestTimeoutMs}ms for ${path}`);
+        throw new Error(
+          `Request timeout after ${this.config.requestTimeoutMs}ms for ${path}`,
+        );
       }
       throw error;
     } finally {

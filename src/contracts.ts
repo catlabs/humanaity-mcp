@@ -1,3 +1,7 @@
+import type { components } from "./generated/api-types.js";
+
+type Schemas = components["schemas"];
+
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
@@ -9,31 +13,9 @@ export interface ApiErrorPayload {
   details?: unknown;
 }
 
-export interface CityOutput {
-  id: number;
-  name: string;
-  humans?: unknown[] | null;
-}
+export type CityOutput = Schemas["CityOutput"];
 
-export interface HumanOutput {
-  id: number;
-  busy?: boolean;
-  isBusy?: boolean;
-  name: string;
-  x: number;
-  y: number;
-  creativity?: number;
-  intellect?: number;
-  sociability?: number;
-  practicality?: number;
-  personality?: string;
-  scienceSkill?: number;
-  cultureSkill?: number;
-  socialSkill?: number;
-  totalScienceContributed?: number;
-  totalCultureContributed?: number;
-  totalSocialContributed?: number;
-}
+export type HumanOutput = Schemas["HumanOutput"];
 
 export interface SimulationStatus {
   running: boolean;
