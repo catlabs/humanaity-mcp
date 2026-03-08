@@ -1,9 +1,16 @@
 import type { AppConfig } from "./config.js";
 import { BackendApiError } from "./errors.js";
 import type {
+  AuthRequest,
   AuthTokens,
+  BackendMessageResponse,
+  BackendSimulationStatusResponse,
+  CityInput,
   CityOutput,
+  HumanInput,
   HumanOutput,
+  MessageResponse,
+  RefreshTokenRequest,
   SimulationSnapshot,
   SimulationStatus,
 } from "./contracts.js";
@@ -45,6 +52,14 @@ class TokenStore {
 export class BackendClient {
   private readonly config: AppConfig;
   private readonly tokenStore: TokenStore;
+  private inFlightLogin?: {
+    key: string;
+    promise: Promise<AuthTokens>;
+  };
+  private inFlightRefresh?: {
+    key: string;
+    promise: Promise<AuthTokens>;
+  };
 
   constructor(config: AppConfig) {
     this.config = config;
@@ -71,15 +86,35 @@ export class BackendClient {
       );
     }
 
-    const tokens = await this.request<AuthTokens>("POST", "/auth/login", {
-      body: {
-        email: resolvedEmail,
-        password: resolvedPassword,
-      },
-    });
+    const requestBody: AuthRequest = {
+      email: resolvedEmail,
+      password: resolvedPassword,
+    };
 
-    this.tokenStore.set(tokens);
-    return tokens;
+    const requestKey = `${resolvedEmail}\u0000${resolvedPassword}`;
+    if (this.inFlightLogin?.key === requestKey) {
+      return this.inFlightLogin.promise;
+    }
+
+    const loginPromise = this.request<AuthTokens>("POST", "/auth/login", {
+      body: requestBody,
+    })
+      .then((tokens) => {
+        this.tokenStore.set(tokens);
+        return tokens;
+      })
+      .finally(() => {
+        if (this.inFlightLogin?.key === requestKey) {
+          this.inFlightLogin = undefined;
+        }
+      });
+
+    this.inFlightLogin = {
+      key: requestKey,
+      promise: loginPromise,
+    };
+
+    return loginPromise;
   }
 
   async authRefresh(refreshToken?: string): Promise<AuthTokens> {
@@ -90,12 +125,34 @@ export class BackendClient {
       );
     }
 
-    const tokens = await this.request<AuthTokens>("POST", "/auth/refresh", {
-      body: { refreshToken: effectiveRefreshToken },
-    });
+    const requestBody: RefreshTokenRequest = {
+      refreshToken: effectiveRefreshToken,
+    };
 
-    this.tokenStore.set(tokens);
-    return tokens;
+    const requestKey = effectiveRefreshToken;
+    if (this.inFlightRefresh?.key === requestKey) {
+      return this.inFlightRefresh.promise;
+    }
+
+    const refreshPromise = this.request<AuthTokens>("POST", "/auth/refresh", {
+      body: requestBody,
+    })
+      .then((tokens) => {
+        this.tokenStore.set(tokens);
+        return tokens;
+      })
+      .finally(() => {
+        if (this.inFlightRefresh?.key === requestKey) {
+          this.inFlightRefresh = undefined;
+        }
+      });
+
+    this.inFlightRefresh = {
+      key: requestKey,
+      promise: refreshPromise,
+    };
+
+    return refreshPromise;
   }
 
   async listCities(accessToken?: string): Promise<CityOutput[]> {
@@ -111,10 +168,29 @@ export class BackendClient {
   }
 
   async createCity(name: string, accessToken?: string): Promise<CityOutput> {
+    const requestBody: CityInput = { name };
+
     return this.request<CityOutput>("POST", "/api/cities", {
       accessToken: await this.resolveAccessToken(accessToken),
-      body: { name },
+      body: requestBody,
     });
+  }
+
+  async updateCity(
+    cityId: string,
+    name: string,
+    accessToken?: string,
+  ): Promise<CityOutput> {
+    const requestBody: CityInput = { name };
+
+    return this.request<CityOutput>(
+      "PUT",
+      `/api/cities/${encodeURIComponent(cityId)}`,
+      {
+        accessToken: await this.resolveAccessToken(accessToken),
+        body: requestBody,
+      },
+    );
   }
 
   async humansByCity(
@@ -130,43 +206,59 @@ export class BackendClient {
     );
   }
 
+  async createHuman(
+    input: HumanInput,
+    accessToken?: string,
+  ): Promise<HumanOutput> {
+    return this.request<HumanOutput>("POST", "/api/humans", {
+      accessToken: await this.resolveAccessToken(accessToken),
+      body: input,
+    });
+  }
+
   async simulationStart(
     cityId: string,
     accessToken?: string,
-  ): Promise<{ message: string }> {
-    return this.request<{ message: string }>(
+  ): Promise<MessageResponse> {
+    const response = await this.request<BackendMessageResponse>(
       "POST",
       `/api/simulations/${encodeURIComponent(cityId)}/start`,
       {
         accessToken: await this.resolveAccessToken(accessToken),
       },
     );
+
+    return this.normalizeMessageResponse(response);
   }
 
   async simulationStop(
     cityId: string,
     accessToken?: string,
-  ): Promise<{ message: string }> {
-    return this.request<{ message: string }>(
+  ): Promise<MessageResponse> {
+    const response = await this.request<BackendMessageResponse>(
       "POST",
       `/api/simulations/${encodeURIComponent(cityId)}/stop`,
       {
         accessToken: await this.resolveAccessToken(accessToken),
       },
     );
+
+    return this.normalizeMessageResponse(response);
   }
 
   async simulationStatus(
     cityId: string,
     accessToken?: string,
   ): Promise<SimulationStatus> {
-    return this.request<SimulationStatus>(
+    const response = await this.request<BackendSimulationStatusResponse>(
       "GET",
       `/api/simulations/${encodeURIComponent(cityId)}/status`,
       {
         accessToken: await this.resolveAccessToken(accessToken),
       },
     );
+
+    return this.normalizeSimulationStatus(response);
   }
 
   async simulationSnapshot(
@@ -324,5 +416,37 @@ export class BackendClient {
     }
 
     return undefined;
+  }
+
+  private normalizeMessageResponse(
+    payload: BackendMessageResponse,
+  ): MessageResponse {
+    if ("message" in payload && typeof payload.message === "string") {
+      return { message: payload.message };
+    }
+
+    const firstStringValue = Object.values(payload).find(
+      (value) => typeof value === "string",
+    );
+
+    return {
+      message: firstStringValue ?? "Operation completed.",
+    };
+  }
+
+  private normalizeSimulationStatus(
+    payload: BackendSimulationStatusResponse,
+  ): SimulationStatus {
+    if ("running" in payload && typeof payload.running === "boolean") {
+      return { running: payload.running };
+    }
+
+    const firstBooleanValue = Object.values(payload).find(
+      (value) => typeof value === "boolean",
+    );
+
+    return {
+      running: firstBooleanValue ?? false,
+    };
   }
 }

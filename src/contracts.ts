@@ -1,6 +1,11 @@
-import type { components } from "./generated/api-types.js";
+import type { components, operations } from "./generated/api-types.js";
 
-type Schemas = components["schemas"];
+export type BackendSchemas = components["schemas"];
+type BackendOperation = keyof operations;
+type BackendOperationSuccessPayload<TOperation extends BackendOperation> =
+  operations[TOperation]["responses"][200]["content"][
+    keyof operations[TOperation]["responses"][200]["content"]
+  ];
 
 export interface AuthTokens {
   accessToken: string;
@@ -13,9 +18,29 @@ export interface ApiErrorPayload {
   details?: unknown;
 }
 
-export type CityOutput = Schemas["CityOutput"];
+export type AuthRequest = BackendSchemas["AuthRequest"];
 
-export type HumanOutput = Schemas["HumanOutput"];
+export type RefreshTokenRequest = BackendSchemas["RefreshTokenRequest"];
+
+export type SignupRequest = BackendSchemas["SignupRequest"];
+
+export type CityInput = BackendSchemas["CityInput"];
+
+export type CityOutput = BackendSchemas["CityOutput"];
+
+export type HumanInput = BackendSchemas["HumanInput"];
+
+export type HumanOutput = BackendSchemas["HumanOutput"];
+
+export type BackendMessageResponse =
+  BackendOperationSuccessPayload<"startSimulation">;
+
+export type BackendSimulationStatusResponse =
+  BackendOperationSuccessPayload<"isSimulationRunning">;
+
+export interface MessageResponse {
+  message: string;
+}
 
 export interface SimulationStatus {
   running: boolean;
